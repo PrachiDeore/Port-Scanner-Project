@@ -1,0 +1,81 @@
+                      import socket
+import threading
+import argparse
+from queue import Queue
+
+# Common ports and their services (for vulnerability assessment)
+COMMON_PORTS = {
+    21: "FTP",
+    22: "SSH",
+    23: "Telnet",
+    25: "SMTP",
+    53: "DNS",
+    80: "HTTP",
+    110: "POP3",
+    143: "IMAP",
+    443: "HTTPS",
+    445: "SMB",
+    3306: "MySQL",
+    3389: "RDP",
+    8080: "HTTP-Alt"
+}
+
+def scan_port(target, port, timeout=1):
+    """Scan a single port on the target."""
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        result = sock.connect_ex((target, port))
+        if result == 0:
+            service = COMMON_PORTS.get(port, "Unknown")
+            print(f"[+] Port {port} ({service}) is OPEN")
+        sock.close()
+    except Exception:
+        pass
+
+def worker(target, queue):
+    """Thread worker to process ports from the queue."""
+    while not queue.empty():
+        port = queue.get()
+        scan_port(target, port)
+        queue.task_done()
+
+def main():
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(description="Python Port Scanner")
+    parser.add_argument("target", help="Target IP or domain")
+    parser.add_argument("-p", "--ports", type=str, default="1-1024", help="Port range (e.g., 1-1000)")
+    parser.add_argument("-t", "--threads", type=int, default=50, help="Number of threads")
+    args = parser.parse_args()
+
+    # Resolve target IP (if domain is provided)
+    try:
+        target_ip = socket.gethostbyname(args.target)
+    except socket.gaierror:
+        print("[-] Invalid target. Check the IP/domain.")
+        return
+
+    # Parse port range
+    if "-" in args.ports:
+        start_port, end_port = map(int, args.ports.split("-"))
+    else:
+        start_port = end_port = int(args.ports)
+
+    # Create a queue of ports
+    queue = Queue()
+    for port in range(start_port, end_port + 1):
+        queue.put(port)
+
+    # Start threads
+    print(f"[*] Scanning {target_ip} (ports {start_port}-{end_port}) with {args.threads} threads...")
+    for _ in range(args.threads):
+        thread = threading.Thread(target=worker, args=(target_ip, queue))
+        thread.daemon = True
+        thread.start()
+
+    # Wait for all threads to finish
+    queue.join()
+    print("[*] Scan completed.")
+
+if __name__ == "__main__":
+    main()
